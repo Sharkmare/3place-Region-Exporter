@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "3place Region Exporter",
+  "version": "1.1.0",
+  "description": "Export a region of the 3place canvas as a GLB or OBJ mesh with the block colours baked in.",
+  "content_scripts": [
+    {
+      "matches": ["https://3place.world/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}
