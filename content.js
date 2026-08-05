@@ -150,6 +150,49 @@
     return { obj: out.join('\n'), mtl, verts: verts.length, faces, mats: byMat.size };
   }
 
+ //BP-Bible:
+  // 1 palette must equal the current world palette.
+  // 2 local coords start at 0,0,0 and size must equal the real bounding box
+  // 3 basis is limited to signed permutations
+  // 4 pivot must be a cell inside size
+  // 5 no two voxels may share a position
+
+  function buildBlueprint(vox, palette, name) {
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity;
+    let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (const k of vox.keys()) {
+      const [x, y, z] = k.split(',').map(Number);
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    const size = [x1 - x0 + 1, y1 - y0 + 1, z1 - z0 + 1];
+
+    const voxels = [];
+    for (const [k, colour] of vox) {
+      const [x, y, z] = k.split(',').map(Number);
+      voxels.push([x - x0, y - y0, z - z0, colour]);
+    }
+    voxels.sort((a, b) => (a[2] - b[2]) || (a[1] - b[1]) || (a[0] - b[0]));
+
+    const bp = {
+      format: '3place-blueprint',
+      version: 1,
+      name: name,
+      palette: palette.slice(),
+      size,
+      placement: {
+        origin: [x0, y0, z0], // COUNTRY ROADS
+        basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        pivot: [size[0] >> 1, size[1] >> 1, 0],
+      },
+      voxels,
+    };
+    const text = JSON.stringify(bp);
+    return { text, voxels: voxels.length, size, origin: [x0, y0, z0],
+             bytes: new Blob([text]).size };
+  }
+
   async function paletteStrip(hexes) {
     const cv = document.createElement('canvas');
     cv.width = hexes.length; cv.height = 1;
@@ -408,7 +451,8 @@
         <select id="tpx-s"><option value="cylinder">Circle</option><option value="box">Square</option></select>
         <label for="tpx-f">File</label>
         <select id="tpx-f"><option value="glb">GLB, textured</option>
-                           <option value="obj">OBJ and MTL</option></select>
+                           <option value="obj">OBJ and MTL</option>
+                           <option value="bp">3place blueprint</option></select>
         <details id="tpx-oo" style="display:none">
           <summary>OBJ options</summary>
           <label for="tpx-m">Colour</label>
@@ -453,7 +497,7 @@
     }, 400);
 
     $('tpx-f').onchange = () => {
-      $('tpx-oo').style.display = $('tpx-f').value === 'glb' ? 'none' : '';
+      $('tpx-oo').style.display = $('tpx-f').value === 'obj' ? '' : 'none';
     };
 
     const hdr = el.querySelector('header');
@@ -488,7 +532,12 @@
         await sleep(30);
         const stem = `3place_${c.xy[0]}_${c.xy[1]}_r${rad}`;
 
-        if (fmt === 'glb') {
+        if (fmt === 'bp') {
+          const b = buildBlueprint(vox, pal, stem);
+          download(`${stem}.3place-blueprint`, b.text, 'application/json');
+          status(`Saved ${stem}.3place-blueprint, ${b.voxels} voxels, `
+               + `${b.size.join('x')}, ${(b.bytes / 1024).toFixed(0)} KB`);
+        } else if (fmt === 'glb') {
           const g = await buildGLB(vox, c.xy[0], c.xy[1], pal, stem);
           download(`${stem}.glb`, g.glb, 'model/gltf-binary');
           status(`Saved ${stem}.glb, ${g.tris} triangles, ${g.colours} colours, ${(g.bytes / 1048576).toFixed(1)} MB`);
