@@ -150,13 +150,6 @@
     return { obj: out.join('\n'), mtl, verts: verts.length, faces, mats: byMat.size };
   }
 
- //BP-Bible:
-  // 1 palette must equal the current world palette.
-  // 2 local coords start at 0,0,0 and size must equal the real bounding box
-  // 3 basis is limited to signed permutations
-  // 4 pivot must be a cell inside size
-  // 5 no two voxels may share a position
-
   function buildBlueprint(vox, palette, name) {
     let x0 = Infinity, y0 = Infinity, z0 = Infinity;
     let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
@@ -182,7 +175,7 @@
       palette: palette.slice(),
       size,
       placement: {
-        origin: [x0, y0, z0], // COUNTRY ROADS
+        origin: [x0, y0, z0],
         basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         pivot: [size[0] >> 1, size[1] >> 1, 0],
       },
@@ -193,27 +186,28 @@
              bytes: new Blob([text]).size };
   }
 
-  async function paletteStrip(hexes) {
+  const ATLAS_GRID = 8, ATLAS_CELL = 16;
+  async function paletteAtlas(hexes, dominant) {
     const cv = document.createElement('canvas');
-    cv.width = hexes.length; cv.height = 1;
+    cv.width = cv.height = ATLAS_GRID * ATLAS_CELL;
     const ctx = cv.getContext('2d');
-    const img = ctx.createImageData(hexes.length, 1);
-    for (let i = 0; i < hexes.length; i++) {
-      const h = (hexes[i] || '#ff00ff').replace('#', '');
-      img.data[i * 4] = parseInt(h.slice(0, 2), 16);
-      img.data[i * 4 + 1] = parseInt(h.slice(2, 4), 16);
-      img.data[i * 4 + 2] = parseInt(h.slice(4, 6), 16);
-      img.data[i * 4 + 3] = 255;
+    for (let cell = 0; cell < ATLAS_GRID * ATLAS_GRID; cell++) {
+      ctx.fillStyle = (cell < hexes.length ? hexes[cell] : hexes[dominant]) || '#ff00ff';
+      ctx.fillRect((cell % ATLAS_GRID) * ATLAS_CELL,
+                   Math.floor(cell / ATLAS_GRID) * ATLAS_CELL, ATLAS_CELL, ATLAS_CELL);
     }
-    ctx.putImageData(img, 0, 0);
     const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
     return new Uint8Array(await blob.arrayBuffer());
   }
 
   async function buildGLB(vox, cx, cy, palette, name) {
-    const used = [...new Set(vox.values())].sort((a, b) => a - b);
+    const tally = new Map();
+    for (const c of vox.values()) tally.set(c, (tally.get(c) || 0) + 1);
+    const used = [...tally.keys()].sort((a, b) => a - b);
     const slot = new Map(used.map((c, i) => [c, i]));
-    const png = await paletteStrip(used.map((c) => palette[c]));
+    let dominant = used[0];
+    for (const c of used) if (tally.get(c) > tally.get(dominant)) dominant = c;
+    const png = await paletteAtlas(used.map((c) => palette[c]), slot.get(dominant));
 
     const pos = [], uv = [], idx = [], vindex = new Map();
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
@@ -223,7 +217,9 @@
       if (i === undefined) {
         i = pos.length / 3;
         pos.push(p[0], p[1], p[2]);
-        uv.push((slot.get(colour) + 0.5) / used.length, 0.5);
+        const s = slot.get(colour);
+        uv.push((s % ATLAS_GRID + 0.5) / ATLAS_GRID,
+                (Math.floor(s / ATLAS_GRID) + 0.5) / ATLAS_GRID);
         for (let k = 0; k < 3; k++) {
           if (p[k] < min[k]) min[k] = p[k];
           if (p[k] > max[k]) max[k] = p[k];
